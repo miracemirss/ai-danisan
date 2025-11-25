@@ -3,7 +3,8 @@
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as DbSession
+# Çakışmayı önlemek için sqlalchemy Session'a alias verdik
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
@@ -12,21 +13,15 @@ from app.services.audit_log_service import AuditLogService
 class SessionService:
     """
     Seans (Session) yönetim servisi.
-    Kullanıcıların (Practitioner) danışanlarla (Client) gerçekleştirdiği seansları yönetir.
     """
 
     @staticmethod
     def _ensure_practitioner_and_client_in_tenant(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         practitioner_id: int,
         client_id: int,
     ):
-        """
-        Practitioner ve Client'ın belirtilen tenant'a ait olduğunu doğrular.
-        Aksi takdirde 400 hatası fırlatır.
-        """
-        # Practitioner (users tablosunda)
         practitioner = (
             db.query(models.User)
             .filter(
@@ -41,7 +36,6 @@ class SessionService:
                 detail="Practitioner not found for this tenant.",
             )
 
-        # Client
         client = (
             db.query(models.Client)
             .filter(
@@ -58,13 +52,10 @@ class SessionService:
 
     @staticmethod
     def _ensure_appointment_in_tenant_if_provided(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         appointment_id: Optional[int],
     ):
-        """
-        Eğer appointment_id verildiyse, bu randevunun tenant'a ait olduğunu doğrular.
-        """
         if appointment_id is None:
             return
 
@@ -84,20 +75,14 @@ class SessionService:
 
     @staticmethod
     def create_session(
-        db: Session,
+        db: DbSession,
         current_user: models.User,
         data: schemas.SessionCreate,
-    ) -> models.SessionModel:
-        """
-        Yeni bir seans kaydı oluşturur.
-        """
+    ) -> models.Session:  # ✅ Düzeltildi: SessionModel -> Session
         tenant_id = current_user.tenant_id
-
-        # practitioner_id gönderilmemişse current_user.id kullan
         practitioner_id = data.practitioner_id or current_user.id
         client_id = data.client_id
 
-        # Tenant doğrulamaları
         SessionService._ensure_practitioner_and_client_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -110,7 +95,8 @@ class SessionService:
             appointment_id=data.appointment_id,
         )
 
-        session = models.SessionModel(
+        # ✅ Düzeltildi: models.SessionModel -> models.Session
+        session = models.Session(
             tenant_id=tenant_id,
             practitioner_id=practitioner_id,
             client_id=client_id,
@@ -139,33 +125,27 @@ class SessionService:
 
     @staticmethod
     def list_sessions(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
-    ) -> List[models.SessionModel]:
-        """
-        Tenant'a ait tüm seansları listeler.
-        """
+    ) -> List[models.Session]: # ✅ Düzeltildi
         return (
-            db.query(models.SessionModel)
-            .filter(models.SessionModel.tenant_id == tenant_id)
-            .order_by(models.SessionModel.occurred_at.desc())
+            db.query(models.Session) # ✅ Düzeltildi
+            .filter(models.Session.tenant_id == tenant_id)
+            .order_by(models.Session.occurred_at.desc())
             .all()
         )
 
     @staticmethod
     def get_session(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         session_id: int,
-    ) -> models.SessionModel:
-        """
-        Tek bir seans detayını getirir.
-        """
+    ) -> models.Session: # ✅ Düzeltildi
         session = (
-            db.query(models.SessionModel)
+            db.query(models.Session) # ✅ Düzeltildi
             .filter(
-                models.SessionModel.id == session_id,
-                models.SessionModel.tenant_id == tenant_id,
+                models.Session.id == session_id,
+                models.Session.tenant_id == tenant_id,
             )
             .first()
         )
@@ -178,18 +158,14 @@ class SessionService:
 
     @staticmethod
     def update_session(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         session_id: int,
         data: schemas.SessionBase,
         current_user: models.User,
-    ) -> models.SessionModel:
-        """
-        Seans bilgilerini günceller (Tam güncelleme - PUT).
-        """
+    ) -> models.Session: # ✅ Düzeltildi
         session = SessionService.get_session(db, tenant_id, session_id)
 
-        # İlişkili kayıtların tenant kontrolü
         SessionService._ensure_practitioner_and_client_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -227,19 +203,15 @@ class SessionService:
 
     @staticmethod
     def partial_update_session(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         session_id: int,
         data: schemas.SessionUpdate,
         current_user: models.User,
-    ) -> models.SessionModel:
-        """
-        Seans bilgilerini kısmi günceller (PATCH).
-        """
+    ) -> models.Session: # ✅ Düzeltildi
         session = SessionService.get_session(db, tenant_id, session_id)
         update_data = data.model_dump(exclude_unset=True)
 
-        # Eğer practitioner/client/appointment güncellenecekse, tenant doğrula
         practitioner_id = update_data.get("practitioner_id", session.practitioner_id)
         client_id = update_data.get("client_id", session.client_id)
         appointment_id = update_data.get("appointment_id", session.appointment_id)
@@ -280,14 +252,11 @@ class SessionService:
 
     @staticmethod
     def delete_session(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         session_id: int,
         current_user: models.User,
     ) -> None:
-        """
-        Seansı siler.
-        """
         session = SessionService.get_session(db, tenant_id, session_id)
         before = session.__dict__.copy()
 

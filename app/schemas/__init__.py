@@ -9,8 +9,6 @@ from .auth import (
     UserRead,
 )
 
-# ileride clients, sessions vb. için yeni schema dosyaları eklediğinde
-# onları da buradan export edebiliriz.
 from .appointment import (
     AppointmentBase,
     AppointmentCreate,
@@ -19,7 +17,7 @@ from .appointment import (
     AppointmentStatus
 )
 
-from.client import (
+from .client import (
     ClientOut,
     ClientCreate,
     ClientBase,
@@ -27,7 +25,7 @@ from.client import (
     ClientUpdate
 )
 
-from.practitioner import (
+from .practitioner import (
     PractitionerProfileCreate,
     Profession,
     PractitionerProfileBase,
@@ -35,35 +33,37 @@ from.practitioner import (
     PractitionerProfileUpdate,
 )
 
-from.session import (
+from .session import (
     SessionType,
     SessionUpdate,
     SessionBase,
     SessionCreate,
     SessionOut,
 )
-from.session_note import (
+
+from .session_note import (
     SessionNoteBase,
     SessionNoteOut,
     SessionNoteCreate,
     SessionNoteUpdate,
     NoteType,
 )
-from.report import (
+
+from .report import (
     ReportOut,
     ReportBase,
     ReportCreate,
     ReportUpdate,
 )
 
-from.subscription_plan import (
+from .subscription_plan import (
     SubscriptionPlanOut,
     SubscriptionPlanBase,
     SubscriptionPlanCreate,
     SubscriptionPlanUpdate,
 )
 
-from.subscription import (
+from .subscription import (
     SubscriptionOut,
     SubscriptionBase,
     SubscriptionCreate,
@@ -71,7 +71,7 @@ from.subscription import (
     SubscriptionStatus,
 )
 
-from.ai_job import (
+from .ai_job import (
     AiJobOut,
     AiJobBase,
     AiJobType,
@@ -79,29 +79,35 @@ from.ai_job import (
     AiJobUpdate,
     AiJobStatus,
 )
-from.ai_summary import (
+
+from .ai_summary import (
     AiSummaryOut,
     AiSummaryBase,
     AiSummaryCreate,
     AiSummaryUpdate,
 )
-from.client_consent import (
+
+from .client_consent import (
     ConsentType,
     ClientConsentOut,
     ClientConsentBase,
     ClientConsentCreate,
     ClientConsentUpdate,
 )
-from.tenant import (
+
+from .tenant import (
     TenantOut,
     TenantCreate,
     TenantUpdate,
     TenantBase,
 )
-from.user import (
+
+# 🔥 GÜNCELLENDİ: UserRegister EKLENDİ
+from .user import (
     UserOut,
     UserUpdate,
     UserBase,
     UserCreate,
     UserPartialUpdate,
+    UserRegister,
 )

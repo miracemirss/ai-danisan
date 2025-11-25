@@ -19,8 +19,8 @@ router = APIRouter(
 
 @router.post("/register", response_model=schemas.UserRead, status_code=status.HTTP_201_CREATED)
 def register(
-        user_in: schemas.UserCreate,
-        db: Session = Depends(get_db),
+    user_in: schemas.UserRegister,  # 👈 BURASI DEĞİŞTİ (Eskisi: schemas.UserCreate)
+    db: Session = Depends(get_db),
 ):
     """
     Sisteme yeni bir tenant (işletme) ve yönetici (owner) kaydeder.

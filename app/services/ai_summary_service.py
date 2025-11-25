@@ -1,9 +1,8 @@
 # app/services/ai_summary_service.py
 
 from typing import List, Optional
-
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as DbSession
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
@@ -12,23 +11,19 @@ from app.services.audit_log_service import AuditLogService
 class AiSummaryService:
     """
     Yapay Zeka Özetleri (AI Summaries) için CRUD yönetim servisi.
-    Seans notları veya transkriptler üzerinden oluşturulan özetleri yönetir.
     """
 
     @staticmethod
     def _ensure_session_in_tenant(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             session_id: int,
     ) -> None:
-        """
-        Belirtilen seansın tenant'a ait olup olmadığını doğrular.
-        """
         session = (
-            db.query(models.SessionModel)
+            db.query(models.Session)  # ✅ Düzeltildi: Session
             .filter(
-                models.SessionModel.id == session_id,
-                models.SessionModel.tenant_id == tenant_id,
+                models.Session.id == session_id,
+                models.Session.tenant_id == tenant_id,
             )
             .first()
         )
@@ -40,18 +35,15 @@ class AiSummaryService:
 
     @staticmethod
     def _get_summary_with_tenant_check(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             summary_id: int,
-    ) -> models.AiSummary:
-        """
-        ID'ye göre özeti getirir ve tenant kontrolü yapar.
-        """
+    ) -> models.AISummary:  # ✅ Düzeltildi: AISummary
         summary = (
-            db.query(models.AiSummary)
+            db.query(models.AISummary)  # ✅ Düzeltildi: AISummary
             .filter(
-                models.AiSummary.id == summary_id,
-                models.AiSummary.tenant_id == tenant_id,
+                models.AISummary.id == summary_id,
+                models.AISummary.tenant_id == tenant_id,
             )
             .first()
         )
@@ -64,23 +56,18 @@ class AiSummaryService:
 
     @staticmethod
     def create_summary(
-            db: Session,
+            db: DbSession,
             current_user: models.User,
             data: schemas.AiSummaryCreate,
-    ) -> models.AiSummary:
-        """
-        Yeni bir AI özeti oluşturur.
-        """
+    ) -> models.AISummary:  # ✅ Düzeltildi
         tenant_id = current_user.tenant_id
-
-        # Seans kontrolü
         AiSummaryService._ensure_session_in_tenant(
             db=db,
             tenant_id=tenant_id,
             session_id=data.session_id,
         )
 
-        summary = models.AiSummary(
+        summary = models.AISummary(  # ✅ Düzeltildi
             tenant_id=tenant_id,
             session_id=data.session_id,
             source_note_id=data.source_note_id,
@@ -107,32 +94,25 @@ class AiSummaryService:
 
     @staticmethod
     def list_summaries(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             session_id: Optional[int] = None,
-    ) -> List[models.AiSummary]:
-        """
-        Tenant'a ait özetleri listeler.
-        session_id verilirse sadece o seansa ait özetler döner.
-        """
-        q = db.query(models.AiSummary).filter(
-            models.AiSummary.tenant_id == tenant_id
+    ) -> List[models.AISummary]:  # ✅ Düzeltildi
+        q = db.query(models.AISummary).filter(  # ✅ Düzeltildi
+            models.AISummary.tenant_id == tenant_id
         )
 
         if session_id is not None:
-            q = q.filter(models.AiSummary.session_id == session_id)
+            q = q.filter(models.AISummary.session_id == session_id)
 
-        return q.order_by(models.AiSummary.created_at.desc()).all()
+        return q.order_by(models.AISummary.created_at.desc()).all()
 
     @staticmethod
     def get_summary(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             summary_id: int,
-    ) -> models.AiSummary:
-        """
-        Tek bir özeti detaylarıyla getirir.
-        """
+    ) -> models.AISummary:  # ✅ Düzeltildi
         return AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -141,23 +121,18 @@ class AiSummaryService:
 
     @staticmethod
     def update_summary(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             summary_id: int,
             data: schemas.AiSummaryBase,
             current_user: models.User,
-    ) -> models.AiSummary:
-        """
-        Özeti günceller (Tam güncelleme).
-        Seans ID değişiyorsa tenant kontrolü yapılır.
-        """
+    ) -> models.AISummary:  # ✅ Düzeltildi
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             summary_id=summary_id,
         )
 
-        # Seans değişiyorsa kontrol et
         if data.session_id != summary.session_id:
             AiSummaryService._ensure_session_in_tenant(
                 db=db,
@@ -190,15 +165,12 @@ class AiSummaryService:
 
     @staticmethod
     def partial_update_summary(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             summary_id: int,
             data: schemas.AiSummaryUpdate,
             current_user: models.User,
-    ) -> models.AiSummary:
-        """
-        Özeti kısmi günceller.
-        """
+    ) -> models.AISummary:  # ✅ Düzeltildi
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -207,7 +179,6 @@ class AiSummaryService:
 
         update_data = data.model_dump(exclude_unset=True)
 
-        # Seans değişiyorsa kontrol et
         if "session_id" in update_data:
             AiSummaryService._ensure_session_in_tenant(
                 db=db,
@@ -239,14 +210,11 @@ class AiSummaryService:
 
     @staticmethod
     def delete_summary(
-            db: Session,
+            db: DbSession,
             tenant_id: int,
             summary_id: int,
             current_user: models.User,
     ) -> None:
-        """
-        Özeti siler.
-        """
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -266,5 +234,3 @@ class AiSummaryService:
             action="DELETE",
             changes={"before": before},
         )
-
-        return

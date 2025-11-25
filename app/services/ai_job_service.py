@@ -1,9 +1,8 @@
 # app/services/ai_job_service.py
 
 from typing import List
-
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as DbSession
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
@@ -12,23 +11,19 @@ from app.services.audit_log_service import AuditLogService
 class AiJobService:
     """
     Yapay Zeka İşleri (AI Jobs) için CRUD yönetim servisi.
-    Asenkron veya uzun süren AI işlemlerinin durumunu ve sonuçlarını takip eder.
     """
 
     @staticmethod
     def _get_job_with_tenant_check(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         job_id: int,
-    ) -> models.AiJob:
-        """
-        ID'ye göre AI işini getirir ve tenant kontrolü yapar.
-        """
+    ) -> models.AIJob: # ✅ Düzeltildi: AIJob
         job = (
-            db.query(models.AiJob)
+            db.query(models.AIJob) # ✅ Düzeltildi: AIJob
             .filter(
-                models.AiJob.id == job_id,
-                models.AiJob.tenant_id == tenant_id,
+                models.AIJob.id == job_id,
+                models.AIJob.tenant_id == tenant_id,
             )
             .first()
         )
@@ -41,14 +36,11 @@ class AiJobService:
 
     @staticmethod
     def create_job(
-        db: Session,
+        db: DbSession,
         current_user: models.User,
         data: schemas.AiJobCreate,
-    ) -> models.AiJob:
-        """
-        Yeni bir AI işi oluşturur (Başlangıç durumu genellikle PENDING olur).
-        """
-        job = models.AiJob(
+    ) -> models.AIJob: # ✅ Düzeltildi
+        job = models.AIJob( # ✅ Düzeltildi
             tenant_id=current_user.tenant_id,
             type=data.type,
             status=schemas.AiJobStatus.PENDING,
@@ -75,28 +67,22 @@ class AiJobService:
 
     @staticmethod
     def list_jobs(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
-    ) -> List[models.AiJob]:
-        """
-        Tenant'a ait tüm AI işlerini listeler (En yeniden eskiye).
-        """
+    ) -> List[models.AIJob]: # ✅ Düzeltildi
         return (
-            db.query(models.AiJob)
-            .filter(models.AiJob.tenant_id == tenant_id)
-            .order_by(models.AiJob.created_at.desc())
+            db.query(models.AIJob) # ✅ Düzeltildi
+            .filter(models.AIJob.tenant_id == tenant_id)
+            .order_by(models.AIJob.created_at.desc())
             .all()
         )
 
     @staticmethod
     def get_job(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         job_id: int,
-    ) -> models.AiJob:
-        """
-        Tek bir AI işinin detaylarını getirir.
-        """
+    ) -> models.AIJob: # ✅ Düzeltildi
         return AiJobService._get_job_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -105,15 +91,12 @@ class AiJobService:
 
     @staticmethod
     def update_job(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         job_id: int,
         data: schemas.AiJobUpdate,
         current_user: models.User,
-    ) -> models.AiJob:
-        """
-        AI işini günceller (Örn: Durum değişikliği, sonuç ekleme).
-        """
+    ) -> models.AIJob: # ✅ Düzeltildi
         job = AiJobService._get_job_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -145,14 +128,11 @@ class AiJobService:
 
     @staticmethod
     def delete_job(
-        db: Session,
+        db: DbSession,
         tenant_id: int,
         job_id: int,
         current_user: models.User,
     ) -> None:
-        """
-        AI işini siler.
-        """
         job = AiJobService._get_job_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
