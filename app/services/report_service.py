@@ -1,22 +1,29 @@
 # app/services/report_service.py
 
-from sqlalchemy.orm import Session as SASession
+from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class ReportService:
-
-    # --- İç yardımcılar ---
+    """
+    Raporlama (Report) işlemlerini yöneten servis sınıfı.
+    Danışan ve Uygulayıcı (Practitioner) arasındaki raporları kapsar.
+    """
 
     @staticmethod
     def _ensure_client_in_tenant(
-        db: SASession,
-        tenant_id: int,
-        client_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            client_id: int,
+    ) -> None:
+        """
+        Belirtilen danışanın, belirtilen tenant'a ait olup olmadığını doğrular.
+        """
         client = (
             db.query(models.Client)
             .filter(
@@ -33,10 +40,13 @@ class ReportService:
 
     @staticmethod
     def _ensure_practitioner_in_tenant(
-        db: SASession,
-        tenant_id: int,
-        practitioner_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            practitioner_id: int,
+    ) -> None:
+        """
+        Belirtilen uygulayıcının (Practitioner), belirtilen tenant'a ait olup olmadığını doğrular.
+        """
         practitioner = (
             db.query(models.User)
             .filter(
@@ -53,10 +63,13 @@ class ReportService:
 
     @staticmethod
     def _get_report_with_tenant_check(
-        db: SASession,
-        tenant_id: int,
-        report_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            report_id: int,
+    ) -> models.Report:
+        """
+        ID'ye göre raporu getirir ve tenant kontrolü yapar.
+        """
         report = (
             db.query(models.Report)
             .filter(
@@ -72,17 +85,18 @@ class ReportService:
             )
         return report
 
-    # --- CRUD metotları + AUDIT LOG ---
-
     @staticmethod
     def create_report(
-        db: SASession,
-        current_user: models.User,
-        data: schemas.ReportCreate,
-    ):
+            db: Session,
+            current_user: models.User,
+            data: schemas.ReportCreate,
+    ) -> models.Report:
+        """
+        Yeni bir rapor oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
-        # client + practitioner aynı tenant'ta mı?
+        # Tenant kontrolü (Client ve Practitioner)
         ReportService._ensure_client_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -109,7 +123,6 @@ class ReportService:
         db.commit()
         db.refresh(report)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -123,11 +136,15 @@ class ReportService:
 
     @staticmethod
     def list_reports(
-        db: SASession,
-        tenant_id: int,
-        client_id: int | None = None,
-        practitioner_id: int | None = None,
-    ):
+            db: Session,
+            tenant_id: int,
+            client_id: Optional[int] = None,
+            practitioner_id: Optional[int] = None,
+    ) -> List[models.Report]:
+        """
+        Tenant'a ait raporları listeler.
+        İsteğe bağlı olarak client_id ve practitioner_id ile filtreleme yapılabilir.
+        """
         q = db.query(models.Report).filter(models.Report.tenant_id == tenant_id)
 
         if client_id is not None:
@@ -140,10 +157,13 @@ class ReportService:
 
     @staticmethod
     def get_report(
-        db: SASession,
-        tenant_id: int,
-        report_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            report_id: int,
+    ) -> models.Report:
+        """
+        Tek bir raporu detaylarıyla getirir.
+        """
         return ReportService._get_report_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -152,19 +172,22 @@ class ReportService:
 
     @staticmethod
     def update_report(
-        db: SASession,
-        tenant_id: int,
-        report_id: int,
-        data: schemas.ReportBase,
-        current_user: models.User,
-    ):
+            db: Session,
+            tenant_id: int,
+            report_id: int,
+            data: schemas.ReportBase,
+            current_user: models.User,
+    ) -> models.Report:
+        """
+        Raporu günceller (Tam güncelleme - PUT).
+        """
         report = ReportService._get_report_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             report_id=report_id,
         )
 
-        # tenant kontrolleri
+        # İlişkili kayıtların tenant kontrolü
         ReportService._ensure_client_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -185,7 +208,6 @@ class ReportService:
         db.commit()
         db.refresh(report)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -202,12 +224,15 @@ class ReportService:
 
     @staticmethod
     def partial_update_report(
-        db: SASession,
-        tenant_id: int,
-        report_id: int,
-        data: schemas.ReportUpdate,
-        current_user: models.User,
-    ):
+            db: Session,
+            tenant_id: int,
+            report_id: int,
+            data: schemas.ReportUpdate,
+            current_user: models.User,
+    ) -> models.Report:
+        """
+        Raporu kısmi günceller (PATCH).
+        """
         report = ReportService._get_report_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -215,22 +240,23 @@ class ReportService:
         )
         update_data = data.model_dump(exclude_unset=True)
 
-        # Eğer client/practitioner değişecekse tenant kontrolü yap
+        # Eğer client veya practitioner ID değişecekse tenant kontrolü yap
         new_client_id = update_data.get("client_id", report.client_id)
-        new_practitioner_id = update_data.get(
-            "practitioner_id", report.practitioner_id
-        )
+        new_practitioner_id = update_data.get("practitioner_id", report.practitioner_id)
 
-        ReportService._ensure_client_in_tenant(
-            db=db,
-            tenant_id=tenant_id,
-            client_id=new_client_id,
-        )
-        ReportService._ensure_practitioner_in_tenant(
-            db=db,
-            tenant_id=tenant_id,
-            practitioner_id=new_practitioner_id,
-        )
+        if new_client_id != report.client_id:
+            ReportService._ensure_client_in_tenant(
+                db=db,
+                tenant_id=tenant_id,
+                client_id=new_client_id,
+            )
+
+        if new_practitioner_id != report.practitioner_id:
+            ReportService._ensure_practitioner_in_tenant(
+                db=db,
+                tenant_id=tenant_id,
+                practitioner_id=new_practitioner_id,
+            )
 
         before = report.__dict__.copy()
 
@@ -239,7 +265,6 @@ class ReportService:
 
         db.commit()
         db.refresh(report)
-
 
         AuditLogService.log(
             db=db,
@@ -257,11 +282,14 @@ class ReportService:
 
     @staticmethod
     def delete_report(
-        db: SASession,
-        tenant_id: int,
-        report_id: int,
-        current_user: models.User,
-    ):
+            db: Session,
+            tenant_id: int,
+            report_id: int,
+            current_user: models.User,
+    ) -> None:
+        """
+        Raporu siler.
+        """
         report = ReportService._get_report_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -272,7 +300,6 @@ class ReportService:
         db.delete(report)
         db.commit()
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -281,5 +308,3 @@ class ReportService:
             action="DELETE",
             changes={"before": before},
         )
-
-        return

@@ -1,14 +1,13 @@
 # app/routers/appointments.py
 
 from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
 from app import models, schemas
-from app.services import auth_service
-from app.services import appointment_service
+from app.database import get_db
+from app.services.auth_service import get_current_user
+from app.services.appointment_service import AppointmentService
 
 router = APIRouter(
     prefix="/appointments",
@@ -17,17 +16,19 @@ router = APIRouter(
 
 
 @router.post(
-    "",
+    "/",
     response_model=schemas.AppointmentOut,
     status_code=status.HTTP_201_CREATED,
 )
 def create_appointment(
     data: schemas.AppointmentCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    """Yeni randevu oluştur (tenant + current_user context'inde)."""
-    return appointment_service.create_appointment(
+    """
+    Yeni bir randevu oluşturur.
+    """
+    return AppointmentService.create_appointment(
         db=db,
         current_user=current_user,
         data=data,
@@ -35,17 +36,20 @@ def create_appointment(
 
 
 @router.get(
-    "",
+    "/",
     response_model=List[schemas.AppointmentOut],
 )
 def list_appointments(
     practitioner_id: Optional[int] = None,
     client_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    """Bu tenant için randevu listesini getir."""
-    return appointment_service.list_appointments(
+    """
+    Tenant'a ait randevuları listeler.
+    İsteğe bağlı olarak 'practitioner_id' veya 'client_id' ile filtreleme yapılabilir.
+    """
+    return AppointmentService.list_appointments(
         db=db,
         tenant_id=current_user.tenant_id,
         practitioner_id=practitioner_id,
@@ -60,17 +64,16 @@ def list_appointments(
 def get_appointment(
     appointment_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    # İstersen burada 404 check’i servise de bırakabilirsin
-    appt = appointment_service.get_appointment(
+    """
+    ID ile tek bir randevunun detaylarını getirir.
+    """
+    return AppointmentService.get_appointment(
         db=db,
         tenant_id=current_user.tenant_id,
         appointment_id=appointment_id,
     )
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    return appt
 
 
 @router.put(
@@ -81,9 +84,12 @@ def update_appointment(
     appointment_id: int,
     data: schemas.AppointmentUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    return appointment_service.update_appointment(
+    """
+    Randevu bilgilerini günceller (Tarih, notlar vb.).
+    """
+    return AppointmentService.update_appointment(
         db=db,
         tenant_id=current_user.tenant_id,
         appointment_id=appointment_id,
@@ -100,9 +106,12 @@ def update_appointment_status(
     appointment_id: int,
     status_value: schemas.AppointmentStatus,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    return appointment_service.change_status(
+    """
+    Randevunun durumunu (örn: COMPLETED, CANCELED) günceller.
+    """
+    return AppointmentService.change_status(
         db=db,
         tenant_id=current_user.tenant_id,
         appointment_id=appointment_id,
@@ -118,12 +127,15 @@ def update_appointment_status(
 def delete_appointment(
     appointment_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth_service.get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
-    appointment_service.delete_appointment(
+    """
+    Bir randevuyu siler.
+    """
+    AppointmentService.delete_appointment(
         db=db,
         tenant_id=current_user.tenant_id,
         appointment_id=appointment_id,
         current_user=current_user,
     )
-    return None
+    return

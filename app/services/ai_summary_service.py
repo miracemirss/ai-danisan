@@ -1,19 +1,29 @@
-from sqlalchemy.orm import Session as SASession
+# app/services/ai_summary_service.py
+
+from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.services.audit_log_service import AuditLogService
 
 
 class AiSummaryService:
-
-    # --- helpers ---
+    """
+    Yapay Zeka Özetleri (AI Summaries) için CRUD yönetim servisi.
+    Seans notları veya transkriptler üzerinden oluşturulan özetleri yönetir.
+    """
 
     @staticmethod
     def _ensure_session_in_tenant(
-        db: SASession,
-        tenant_id: int,
-        session_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            session_id: int,
+    ) -> None:
+        """
+        Belirtilen seansın tenant'a ait olup olmadığını doğrular.
+        """
         session = (
             db.query(models.SessionModel)
             .filter(
@@ -30,10 +40,13 @@ class AiSummaryService:
 
     @staticmethod
     def _get_summary_with_tenant_check(
-        db: SASession,
-        tenant_id: int,
-        summary_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            summary_id: int,
+    ) -> models.AiSummary:
+        """
+        ID'ye göre özeti getirir ve tenant kontrolü yapar.
+        """
         summary = (
             db.query(models.AiSummary)
             .filter(
@@ -49,16 +62,18 @@ class AiSummaryService:
             )
         return summary
 
-    # --- CRUD ---
-
     @staticmethod
     def create_summary(
-        db: SASession,
-        current_user: models.User,
-        data: schemas.AiSummaryCreate,
-    ):
+            db: Session,
+            current_user: models.User,
+            data: schemas.AiSummaryCreate,
+    ) -> models.AiSummary:
+        """
+        Yeni bir AI özeti oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
+        # Seans kontrolü
         AiSummaryService._ensure_session_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -78,14 +93,28 @@ class AiSummaryService:
         db.add(summary)
         db.commit()
         db.refresh(summary)
+
+        AuditLogService.log(
+            db=db,
+            user=current_user,
+            entity="ai_summary",
+            entity_id=summary.id,
+            action="CREATE",
+            changes=data.model_dump(),
+        )
+
         return summary
 
     @staticmethod
     def list_summaries(
-        db: SASession,
-        tenant_id: int,
-        session_id: int | None = None,
-    ):
+            db: Session,
+            tenant_id: int,
+            session_id: Optional[int] = None,
+    ) -> List[models.AiSummary]:
+        """
+        Tenant'a ait özetleri listeler.
+        session_id verilirse sadece o seansa ait özetler döner.
+        """
         q = db.query(models.AiSummary).filter(
             models.AiSummary.tenant_id == tenant_id
         )
@@ -97,10 +126,13 @@ class AiSummaryService:
 
     @staticmethod
     def get_summary(
-        db: SASession,
-        tenant_id: int,
-        summary_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            summary_id: int,
+    ) -> models.AiSummary:
+        """
+        Tek bir özeti detaylarıyla getirir.
+        """
         return AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -109,37 +141,64 @@ class AiSummaryService:
 
     @staticmethod
     def update_summary(
-        db: SASession,
-        tenant_id: int,
-        summary_id: int,
-        data: schemas.AiSummaryBase,
-    ):
+            db: Session,
+            tenant_id: int,
+            summary_id: int,
+            data: schemas.AiSummaryBase,
+            current_user: models.User,
+    ) -> models.AiSummary:
+        """
+        Özeti günceller (Tam güncelleme).
+        Seans ID değişiyorsa tenant kontrolü yapılır.
+        """
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             summary_id=summary_id,
         )
 
-        AiSummaryService._ensure_session_in_tenant(
-            db=db,
-            tenant_id=tenant_id,
-            session_id=data.session_id,
-        )
+        # Seans değişiyorsa kontrol et
+        if data.session_id != summary.session_id:
+            AiSummaryService._ensure_session_in_tenant(
+                db=db,
+                tenant_id=tenant_id,
+                session_id=data.session_id,
+            )
 
-        for field, value in data.model_dump().items():
+        before = summary.__dict__.copy()
+        update_data = data.model_dump()
+
+        for field, value in update_data.items():
             setattr(summary, field, value)
 
         db.commit()
         db.refresh(summary)
+
+        AuditLogService.log(
+            db=db,
+            user=current_user,
+            entity="ai_summary",
+            entity_id=summary.id,
+            action="UPDATE",
+            changes={
+                "before": before,
+                "after": update_data,
+            },
+        )
+
         return summary
 
     @staticmethod
     def partial_update_summary(
-        db: SASession,
-        tenant_id: int,
-        summary_id: int,
-        data: schemas.AiSummaryUpdate,
-    ):
+            db: Session,
+            tenant_id: int,
+            summary_id: int,
+            data: schemas.AiSummaryUpdate,
+            current_user: models.User,
+    ) -> models.AiSummary:
+        """
+        Özeti kısmi günceller.
+        """
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -148,6 +207,7 @@ class AiSummaryService:
 
         update_data = data.model_dump(exclude_unset=True)
 
+        # Seans değişiyorsa kontrol et
         if "session_id" in update_data:
             AiSummaryService._ensure_session_in_tenant(
                 db=db,
@@ -155,24 +215,56 @@ class AiSummaryService:
                 session_id=update_data["session_id"],
             )
 
+        before = summary.__dict__.copy()
+
         for field, value in update_data.items():
             setattr(summary, field, value)
 
         db.commit()
         db.refresh(summary)
+
+        AuditLogService.log(
+            db=db,
+            user=current_user,
+            entity="ai_summary",
+            entity_id=summary.id,
+            action="PATCH",
+            changes={
+                "before": before,
+                "after": update_data,
+            },
+        )
+
         return summary
 
     @staticmethod
     def delete_summary(
-        db: SASession,
-        tenant_id: int,
-        summary_id: int,
-    ):
+            db: Session,
+            tenant_id: int,
+            summary_id: int,
+            current_user: models.User,
+    ) -> None:
+        """
+        Özeti siler.
+        """
         summary = AiSummaryService._get_summary_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             summary_id=summary_id,
         )
+
+        before = summary.__dict__.copy()
+
         db.delete(summary)
         db.commit()
+
+        AuditLogService.log(
+            db=db,
+            user=current_user,
+            entity="ai_summary",
+            entity_id=summary_id,
+            action="DELETE",
+            changes={"before": before},
+        )
+
         return

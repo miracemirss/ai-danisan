@@ -2,23 +2,27 @@
 
 from typing import List
 
-from sqlalchemy.orm import Session as SASession
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
-from app.core.security import get_password_hash  # ✅ BURASI ÖNEMLİ
+from app.core.security import get_password_hash
 
 
 class UserService:
 
     @staticmethod
     def _get_user_in_tenant_or_404(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         user_id: int,
     ) -> models.User:
+        """
+        Yardımcı Fonksiyon: Belirtilen ID'li kullanıcıyı, belirtilen tenant içinde arar.
+        Bulamazsa 404 hatası fırlatır.
+        """
         user = (
             db.query(models.User)
             .filter(
@@ -35,15 +39,31 @@ class UserService:
         return user
 
     @staticmethod
+    def list_users(db: Session, tenant_id: int) -> List[models.User]:
+        """
+        Tenant'a ait tüm kullanıcıları listeler.
+        """
+        return db.query(models.User).filter(models.User.tenant_id == tenant_id).all()
+
+    @staticmethod
+    def get_user(db: Session, tenant_id: int, user_id: int) -> models.User:
+        """
+        Tek bir kullanıcı detayını getirir.
+        """
+        return UserService._get_user_in_tenant_or_404(db, tenant_id, user_id)
+
+    @staticmethod
     def create_user(
-        db: SASession,
+        db: Session,
         current_user: models.User,
         data: schemas.UserCreate,
     ) -> models.User:
+        """
+        Yeni bir kullanıcı oluşturur ve şifresini güvenli (bcrypt) şekilde hashler.
+        """
         tenant_id = current_user.tenant_id
 
-        # ❌ hash_password değil
-        # ✅ get_password_hash kullanıyoruz
+        # Şifre hashleme (app.core.security modülünden)
         password_hash = get_password_hash(data.password)
 
         user = models.User(
@@ -67,6 +87,7 @@ class UserService:
 
         db.refresh(user)
 
+        # Audit Log
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -85,12 +106,15 @@ class UserService:
 
     @staticmethod
     def update_user(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         user_id: int,
         data: schemas.UserUpdate,
         current_user: models.User,
     ) -> models.User:
+        """
+        Kullanıcı bilgilerini günceller (Tam güncelleme).
+        """
         user = UserService._get_user_in_tenant_or_404(db, tenant_id, user_id)
 
         before = user.__dict__.copy()
@@ -100,8 +124,9 @@ class UserService:
         user.role = data.role
         user.is_active = data.is_active
 
+        # Eğer yeni şifre gönderildiyse hashleyerek güncelle
         if data.password:
-            user.password_hash = get_password_hash(data.password)  # ✅
+            user.password_hash = get_password_hash(data.password)
 
         try:
             db.commit()
@@ -122,12 +147,7 @@ class UserService:
             action="UPDATE",
             changes={
                 "before": before,
-                "after": {
-                    "full_name": user.full_name,
-                    "email": user.email,
-                    "role": user.role,
-                    "is_active": user.is_active,
-                },
+                "after": data.model_dump(exclude={"password"}),
             },
         )
 
@@ -135,28 +155,25 @@ class UserService:
 
     @staticmethod
     def partial_update_user(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         user_id: int,
         data: schemas.UserPartialUpdate,
         current_user: models.User,
     ) -> models.User:
+        """
+        Kullanıcı bilgilerini kısmi günceller.
+        """
         user = UserService._get_user_in_tenant_or_404(db, tenant_id, user_id)
         update_data = data.model_dump(exclude_unset=True)
 
         before = user.__dict__.copy()
 
-        if "full_name" in update_data:
-            user.full_name = update_data["full_name"]
-
-        if "role" in update_data:
-            user.role = update_data["role"]
-
-        if "is_active" in update_data:
-            user.is_active = update_data["is_active"]
-
-        if "password" in update_data and update_data["password"]:
-            user.password_hash = get_password_hash(update_data["password"])  # ✅
+        for field, value in update_data.items():
+            if field == "password" and value:
+                user.password_hash = get_password_hash(value)
+            else:
+                setattr(user, field, value)
 
         try:
             db.commit()
@@ -182,3 +199,36 @@ class UserService:
         )
 
         return user
+
+    @staticmethod
+    def delete_user(
+        db: Session,
+        tenant_id: int,
+        user_id: int,
+        current_user: models.User,
+    ):
+        """
+        Kullanıcıyı siler. Kendini silmeye çalışırsa hata verir.
+        """
+        user = UserService._get_user_in_tenant_or_404(db, tenant_id, user_id)
+
+        # Güvenlik: Kişinin kendini silmesini engelle
+        if user.id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot delete your own account.",
+            )
+
+        before = user.__dict__.copy()
+
+        db.delete(user)
+        db.commit()
+
+        AuditLogService.log(
+            db=db,
+            user=current_user,
+            entity="user",
+            entity_id=user_id,
+            action="DELETE",
+            changes={"before": before},
+        )

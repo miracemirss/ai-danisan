@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session as SASession
+# app/routers/ai_jobs.py
 
+from typing import List
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+
+from app import schemas, models
 from app.database import get_db
 from app.services.auth_service import get_current_user
 from app.services.ai_job_service import AiJobService
-from app import schemas, models
 
 router = APIRouter(
     prefix="/ai-jobs",
@@ -19,9 +22,12 @@ router = APIRouter(
 )
 def create_ai_job(
     job_in: schemas.AiJobCreate,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Yeni bir AI işi (Job) oluşturur.
+    """
     return AiJobService.create_job(
         db=db,
         current_user=current_user,
@@ -29,11 +35,14 @@ def create_ai_job(
     )
 
 
-@router.get("/", response_model=list[schemas.AiJobOut])
+@router.get("/", response_model=List[schemas.AiJobOut])
 def list_ai_jobs(
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Tenant'a ait tüm AI işlerini listeler.
+    """
     return AiJobService.list_jobs(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -43,9 +52,12 @@ def list_ai_jobs(
 @router.get("/{job_id}", response_model=schemas.AiJobOut)
 def get_ai_job(
     job_id: int,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    ID ile tek bir AI işinin detaylarını getirir.
+    """
     return AiJobService.get_job(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -57,26 +69,34 @@ def get_ai_job(
 def update_ai_job(
     job_id: int,
     job_in: schemas.AiJobUpdate,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    AI işini kısmi olarak günceller.
+    """
     return AiJobService.update_job(
         db=db,
         tenant_id=current_user.tenant_id,
         job_id=job_id,
         data=job_in,
+        current_user=current_user,  # Audit log için eklendi
     )
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_ai_job(
     job_id: int,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    AI işini siler.
+    """
     AiJobService.delete_job(
         db=db,
         tenant_id=current_user.tenant_id,
         job_id=job_id,
+        current_user=current_user,  # Audit log için eklendi
     )
     return

@@ -1,17 +1,28 @@
-from sqlalchemy.orm import Session as SASession
+# app/services/client_consent_service.py
+
+from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class ClientConsentService:
+    """
+    Danışan Onay Formları (Client Consent) için CRUD yönetim servisi.
+    """
 
-    # --------------------------
-    # Internal helpers
-    # --------------------------
     @staticmethod
-    def _ensure_client_in_tenant(db: SASession, tenant_id: int, client_id: int):
+    def _ensure_client_in_tenant(
+        db: Session,
+        tenant_id: int,
+        client_id: int
+    ) -> models.Client:
+        """
+        Belirtilen danışanın tenant içinde olup olmadığını doğrular.
+        """
         client = (
             db.query(models.Client)
             .filter(
@@ -29,10 +40,14 @@ class ClientConsentService:
 
     @staticmethod
     def _get_consent_with_tenant_check(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         consent_id: int
-    ):
+    ) -> models.ClientConsent:
+        """
+        ID'ye göre onay formunu getirir.
+        Tenant kontrolü, ilişkili Client üzerinden yapılır.
+        """
         consent = (
             db.query(models.ClientConsent)
             .join(models.Client, models.Client.id == models.ClientConsent.client_id)
@@ -49,20 +64,19 @@ class ClientConsentService:
             )
         return consent
 
-    # --------------------------
-    # CRUD
-    # --------------------------
-
     @staticmethod
     def create_consent(
-        db: SASession,
+        db: Session,
         current_user: models.User,
         data: schemas.ClientConsentCreate,
-    ):
+    ) -> models.ClientConsent:
+        """
+        Yeni bir onay formu oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
-        # tenant check
-        client = ClientConsentService._ensure_client_in_tenant(
+        # Danışan kontrolü
+        ClientConsentService._ensure_client_in_tenant(
             db, tenant_id, data.client_id
         )
 
@@ -78,13 +92,12 @@ class ClientConsentService:
         db.commit()
         db.refresh(consent)
 
-        # audit
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="ClientConsent",
             entity_id=consent.id,
-            action="create",
+            action="CREATE",
             changes=data.model_dump(),
         )
 
@@ -92,10 +105,14 @@ class ClientConsentService:
 
     @staticmethod
     def list_consents(
-        db: SASession,
+        db: Session,
         tenant_id: int,
-        client_id: int | None = None,
-    ):
+        client_id: Optional[int] = None,
+    ) -> List[models.ClientConsent]:
+        """
+        Tenant'a ait onay formlarını listeler.
+        client_id verilirse sadece o danışanın formları döner.
+        """
         q = (
             db.query(models.ClientConsent)
             .join(models.Client, models.Client.id == models.ClientConsent.client_id)
@@ -109,27 +126,34 @@ class ClientConsentService:
 
     @staticmethod
     def get_consent(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         consent_id: int,
-    ):
+    ) -> models.ClientConsent:
+        """
+        Tek bir onay formunun detaylarını getirir.
+        """
         return ClientConsentService._get_consent_with_tenant_check(
             db, tenant_id, consent_id
         )
 
     @staticmethod
     def update_consent(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         consent_id: int,
         data: schemas.ClientConsentUpdate,
         current_user: models.User,
-    ):
+    ) -> models.ClientConsent:
+        """
+        Onay formunu günceller.
+        """
         consent = ClientConsentService._get_consent_with_tenant_check(
             db, tenant_id, consent_id
         )
 
         update_data = data.model_dump(exclude_unset=True)
+        before = consent.__dict__.copy()
 
         # Eğer client_id değişiyorsa tenant kontrolü tekrar yapılmalı
         if "client_id" in update_data:
@@ -148,22 +172,29 @@ class ClientConsentService:
             user=current_user,
             entity="ClientConsent",
             entity_id=consent.id,
-            action="update",
-            changes=update_data,
+            action="UPDATE",
+            changes={
+                "before": before,
+                "after": update_data
+            },
         )
 
         return consent
 
     @staticmethod
     def delete_consent(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         consent_id: int,
         current_user: models.User,
-    ):
+    ) -> None:
+        """
+        Onay formunu siler.
+        """
         consent = ClientConsentService._get_consent_with_tenant_check(
             db, tenant_id, consent_id
         )
+        before = consent.__dict__.copy()
 
         db.delete(consent)
         db.commit()
@@ -173,6 +204,6 @@ class ClientConsentService:
             user=current_user,
             entity="ClientConsent",
             entity_id=consent_id,
-            action="delete",
-            changes=None,
+            action="DELETE",
+            changes={"before": before},
         )

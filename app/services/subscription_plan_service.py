@@ -1,20 +1,26 @@
 # app/services/subscription_plan_service.py
 
-from sqlalchemy.orm import Session as SASession
-from sqlalchemy.exc import IntegrityError
+from typing import List
+
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class SubscriptionPlanService:
+    """
+    Abonelik Planları (Subscription Plans) için CRUD yönetim servisi.
+    Genellikle sadece Admin yetkisiyle yönetilir.
+    """
 
-    # -------------------------
-    # Internal helper
-    # -------------------------
     @staticmethod
-    def _get_plan_or_404(db: SASession, plan_id: int):
+    def _get_plan_or_404(db: Session, plan_id: int) -> models.SubscriptionPlan:
+        """
+        Yardımcı fonksiyon: ID'ye göre planı arar, bulamazsa 404 hatası fırlatır.
+        """
         plan = (
             db.query(models.SubscriptionPlan)
             .filter(models.SubscriptionPlan.id == plan_id)
@@ -27,15 +33,15 @@ class SubscriptionPlanService:
             )
         return plan
 
-    # -------------------------
-    # CREATE
-    # -------------------------
     @staticmethod
     def create_plan(
-        db: SASession,
+        db: Session,
         data: schemas.SubscriptionPlanCreate,
         current_user: models.User,
-    ):
+    ) -> models.SubscriptionPlan:
+        """
+        Yeni bir abonelik planı oluşturur.
+        """
         plan = models.SubscriptionPlan(
             code=data.code,
             name=data.name,
@@ -51,52 +57,51 @@ class SubscriptionPlanService:
         except IntegrityError:
             db.rollback()
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Subscription plan with this code already exists.",
             )
 
         db.refresh(plan)
 
-        # 🔥 AUDIT LOG — CREATE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription_plan",
             entity_id=plan.id,
-            action="create",
+            action="CREATE",
             changes=data.model_dump(),
         )
 
         return plan
 
-    # -------------------------
-    # LIST
-    # -------------------------
     @staticmethod
-    def list_plans(db: SASession):
+    def list_plans(db: Session) -> List[models.SubscriptionPlan]:
+        """
+        Tüm abonelik planlarını fiyata göre artan sırada listeler.
+        """
         return (
             db.query(models.SubscriptionPlan)
             .order_by(models.SubscriptionPlan.monthly_price.asc())
             .all()
         )
 
-    # -------------------------
-    # GET
-    # -------------------------
     @staticmethod
-    def get_plan(db: SASession, plan_id: int):
+    def get_plan(db: Session, plan_id: int) -> models.SubscriptionPlan:
+        """
+        ID ile tek bir plan detayını getirir.
+        """
         return SubscriptionPlanService._get_plan_or_404(db, plan_id)
 
-    # -------------------------
-    # UPDATE (PUT)
-    # -------------------------
     @staticmethod
     def update_plan(
-        db: SASession,
+        db: Session,
         plan_id: int,
         data: schemas.SubscriptionPlanBase,
         current_user: models.User,
-    ):
+    ) -> models.SubscriptionPlan:
+        """
+        Abonelik planını günceller (Tam güncelleme - PUT).
+        """
         plan = SubscriptionPlanService._get_plan_or_404(db, plan_id)
 
         before = plan.__dict__.copy()
@@ -110,34 +115,33 @@ class SubscriptionPlanService:
         except IntegrityError:
             db.rollback()
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Subscription plan code already exists.",
             )
 
         db.refresh(plan)
 
-        # 🔥 AUDIT LOG — UPDATE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription_plan",
             entity_id=plan.id,
-            action="update",
+            action="UPDATE",
             changes={"before": before, "after": update_data},
         )
 
         return plan
 
-    # -------------------------
-    # PARTIAL UPDATE (PATCH)
-    # -------------------------
     @staticmethod
     def partial_update_plan(
-        db: SASession,
+        db: Session,
         plan_id: int,
         data: schemas.SubscriptionPlanUpdate,
         current_user: models.User,
-    ):
+    ) -> models.SubscriptionPlan:
+        """
+        Abonelik planını kısmi olarak günceller (PATCH).
+        """
         plan = SubscriptionPlanService._get_plan_or_404(db, plan_id)
         before = plan.__dict__.copy()
 
@@ -151,47 +155,44 @@ class SubscriptionPlanService:
         except IntegrityError:
             db.rollback()
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Subscription plan code already exists.",
             )
 
         db.refresh(plan)
 
-        # 🔥 AUDIT LOG — PATCH
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription_plan",
             entity_id=plan.id,
-            action="patch",
+            action="PATCH",
             changes={"before": before, "after": update_data},
         )
 
         return plan
 
-    # -------------------------
-    # DELETE
-    # -------------------------
     @staticmethod
     def delete_plan(
-        db: SASession,
+        db: Session,
         plan_id: int,
         current_user: models.User,
-    ):
+    ) -> None:
+        """
+        Abonelik planını siler.
+        Dikkat: Bu plana bağlı aktif abonelikler varsa veritabanı kısıtlaması nedeniyle hata alabilirsiniz.
+        """
         plan = SubscriptionPlanService._get_plan_or_404(db, plan_id)
         before = plan.__dict__.copy()
 
         db.delete(plan)
         db.commit()
 
-        # 🔥 AUDIT LOG — DELETE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription_plan",
             entity_id=plan_id,
-            action="delete",
+            action="DELETE",
             changes={"before": before},
         )
-
-        return

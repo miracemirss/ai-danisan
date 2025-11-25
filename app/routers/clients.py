@@ -1,22 +1,33 @@
 # app/routers/clients.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from app import schemas, models
 from app.database import get_db
 from app.services.auth_service import get_current_user
 from app.services.client_service import ClientService
-from app import schemas, models
 
-router = APIRouter(prefix="/clients", tags=["clients"])
+router = APIRouter(
+    prefix="/clients",
+    tags=["clients"]
+)
 
 
-@router.post("/", response_model=schemas.ClientOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=schemas.ClientOut,
+    status_code=status.HTTP_201_CREATED
+)
 def create_client(
     client_in: schemas.ClientCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Yeni bir danışan (client) oluşturur.
+    """
     return ClientService.create_client(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -25,11 +36,14 @@ def create_client(
     )
 
 
-@router.get("/", response_model=list[schemas.ClientOut])
+@router.get("/", response_model=List[schemas.ClientOut])
 def list_clients(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Mevcut tenant'a ait tüm danışanları listeler.
+    """
     return ClientService.list_clients(
         db=db,
         tenant_id=current_user.tenant_id
@@ -42,6 +56,9 @@ def get_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Belirli bir danışanın detaylarını getirir.
+    """
     return ClientService.get_client(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -56,6 +73,9 @@ def update_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Danışan bilgilerini günceller (Tam güncelleme).
+    """
     return ClientService.update_client(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -72,6 +92,9 @@ def partial_update_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Danışan bilgilerini kısmi günceller.
+    """
     return ClientService.partial_update_client(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -87,9 +110,13 @@ def delete_client(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    return ClientService.delete_client(
+    """
+    Bir danışanı siler.
+    """
+    ClientService.delete_client(
         db=db,
         tenant_id=current_user.tenant_id,
         client_id=client_id,
         current_user=current_user,
     )
+    return

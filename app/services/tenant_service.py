@@ -1,20 +1,25 @@
 # app/services/tenant_service.py
 
-from sqlalchemy.orm import Session as SASession
+from typing import List, Optional
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app import models, schemas
-from app.services.auth_service import _slugify  # daha önce yazmıştık
+from app.core.utils import slugify
 from app.services.audit_log_service import AuditLogService
 
 
 class TenantService:
-
-    # --- helpers ---
+    """
+    Tenant (İşletme/Klinik) CRUD işlemlerini yöneten servis sınıfı.
+    """
 
     @staticmethod
-    def _get_tenant_or_404(db: SASession, tenant_id: int):
+    def _get_tenant_or_404(db: Session, tenant_id: int) -> models.Tenant:
+        """
+        Yardımcı fonksiyon: ID'ye göre tenant arar, bulamazsa 404 fırlatır.
+        """
         tenant = (
             db.query(models.Tenant)
             .filter(models.Tenant.id == tenant_id)
@@ -27,19 +32,16 @@ class TenantService:
             )
         return tenant
 
-    # --- CRUD ---
-
     @staticmethod
     def create_tenant(
-        db: SASession,
+        db: Session,
         data: schemas.TenantCreate,
-        current_user: models.User | None = None,
-    ):
-        # Eğer sadece SUPER_ADMIN tenant oluşturabilsin istiyorsan burada kontrol edersin:
-        # if current_user and current_user.role != models.UserRole.ADMIN:
-        #     raise HTTPException(status_code=403, detail="Not allowed to create tenants")
-
-        slug = data.slug or _slugify(data.name)
+        current_user: Optional[models.User] = None,
+    ) -> models.Tenant:
+        """
+        Yeni bir tenant oluşturur.
+        """
+        slug = data.slug or slugify(data.name)
 
         tenant = models.Tenant(
             name=data.name,
@@ -61,10 +63,9 @@ class TenantService:
 
         db.refresh(tenant)
 
-
         AuditLogService.log(
             db=db,
-            user=current_user,  # bootstrap senaryosunda None olabilir
+            user=current_user,
             entity="tenant",
             entity_id=tenant.id,
             action="CREATE",
@@ -74,8 +75,10 @@ class TenantService:
         return tenant
 
     @staticmethod
-    def list_tenants(db: SASession):
-        # Bu endpoint'i sadece sistem admini kullanacaksa router'da role check yaparsın
+    def list_tenants(db: Session) -> List[models.Tenant]:
+        """
+        Sistemdeki tüm tenant'ları listeler (En yeniden eskiye).
+        """
         return (
             db.query(models.Tenant)
             .order_by(models.Tenant.created_at.desc())
@@ -83,21 +86,27 @@ class TenantService:
         )
 
     @staticmethod
-    def get_tenant(db: SASession, tenant_id: int):
+    def get_tenant(db: Session, tenant_id: int) -> models.Tenant:
+        """
+        ID ile tenant detayını döner.
+        """
         return TenantService._get_tenant_or_404(db, tenant_id)
 
     @staticmethod
     def update_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         data: schemas.TenantBase,
         current_user: models.User,
-    ):
+    ) -> models.Tenant:
+        """
+        Tenant bilgilerini günceller (Tam güncelleme).
+        """
         tenant = TenantService._get_tenant_or_404(db, tenant_id)
 
         before = tenant.__dict__.copy()
 
-        slug = data.slug or tenant.slug or _slugify(data.name)
+        slug = data.slug or tenant.slug or slugify(data.name)
 
         tenant.name = data.name
         tenant.slug = slug
@@ -118,7 +127,6 @@ class TenantService:
 
         db.refresh(tenant)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -135,19 +143,22 @@ class TenantService:
 
     @staticmethod
     def partial_update_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         data: schemas.TenantUpdate,
         current_user: models.User,
-    ):
+    ) -> models.Tenant:
+        """
+        Tenant bilgilerini kısmi günceller (Örn: Sadece isim).
+        """
         tenant = TenantService._get_tenant_or_404(db, tenant_id)
         update_data = data.model_dump(exclude_unset=True)
 
         before = tenant.__dict__.copy()
 
+        # İsim değiştiyse ve slug manuel verilmediyse, slug'ı güncelle
         if "name" in update_data and "slug" not in update_data:
-            # name değişti ama slug verilmedi → slug'ı istersen otomatik güncelle
-            update_data["slug"] = _slugify(update_data["name"])
+            update_data["slug"] = slugify(update_data["name"])
 
         for field, value in update_data.items():
             setattr(tenant, field, value)
@@ -162,7 +173,6 @@ class TenantService:
             )
 
         db.refresh(tenant)
-
 
         AuditLogService.log(
             db=db,
@@ -180,33 +190,36 @@ class TenantService:
 
     @staticmethod
     def delete_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         current_user: models.User,
     ):
+        """
+        Tenant'ı siler.
+        """
         tenant = TenantService._get_tenant_or_404(db, tenant_id)
         before = tenant.__dict__.copy()
 
         db.delete(tenant)
         db.commit()
 
-        # 🔥 AUDIT LOG – DELETE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="tenant",
-            entity_id=tenant_id,
+            entity_id=tenant.id,
             action="DELETE",
             changes={"before": before},
         )
 
-        return
-
     @staticmethod
     def get_current_user_tenant(
-        db: SASession,
+        db: Session,
         current_user: models.User,
-    ):
+    ) -> models.Tenant:
+        """
+        Kullanıcının bağlı olduğu tenant'ı döner.
+        """
         tenant = (
             db.query(models.Tenant)
             .filter(models.Tenant.id == current_user.tenant_id)

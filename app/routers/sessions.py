@@ -1,11 +1,13 @@
 # app/routers/sessions.py
 
+from typing import List
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session as SASession
+from sqlalchemy.orm import Session
+
+from app import schemas, models
 from app.database import get_db
 from app.services.auth_service import get_current_user
 from app.services.session_service import SessionService
-from app import schemas, models
 
 router = APIRouter(
     prefix="/sessions",
@@ -20,9 +22,12 @@ router = APIRouter(
 )
 def create_session(
     session_in: schemas.SessionCreate,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Yeni bir seans oluşturur.
+    """
     return SessionService.create_session(
         db=db,
         current_user=current_user,
@@ -30,11 +35,14 @@ def create_session(
     )
 
 
-@router.get("/", response_model=list[schemas.SessionOut])
+@router.get("/", response_model=List[schemas.SessionOut])
 def list_sessions(
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Mevcut tenant'a ait tüm seansları listeler.
+    """
     return SessionService.list_sessions(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -44,9 +52,12 @@ def list_sessions(
 @router.get("/{session_id}", response_model=schemas.SessionOut)
 def get_session(
     session_id: int,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    ID ile tek bir seansın detaylarını getirir.
+    """
     return SessionService.get_session(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -58,9 +69,12 @@ def get_session(
 def update_session(
     session_id: int,
     session_in: schemas.SessionBase,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Seans bilgilerini günceller (Tam güncelleme).
+    """
     return SessionService.update_session(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -74,9 +88,12 @@ def update_session(
 def partial_update_session(
     session_id: int,
     session_in: schemas.SessionUpdate,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Seans bilgilerini kısmi günceller.
+    """
     return SessionService.partial_update_session(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -89,9 +106,12 @@ def partial_update_session(
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session(
     session_id: int,
-    db: SASession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """
+    Bir seansı siler.
+    """
     SessionService.delete_session(
         db=db,
         tenant_id=current_user.tenant_id,

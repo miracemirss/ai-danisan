@@ -1,22 +1,30 @@
 # app/services/session_note_service.py
 
-from sqlalchemy.orm import Session as SASession
+from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class SessionNoteService:
-
-    # --- İç helper'lar ---
+    """
+    Seans Notları (Session Notes) için CRUD yönetim servisi.
+    Notların belirli bir seansa ve yazara (User) ait olmasını ve
+    tenant sınırları içinde kalmasını sağlar.
+    """
 
     @staticmethod
     def _ensure_session_in_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         session_id: int,
-    ):
+    ) -> None:
+        """
+        Belirtilen seansın, belirtilen tenant'a ait olup olmadığını doğrular.
+        """
         session = (
             db.query(models.SessionModel)
             .filter(
@@ -33,10 +41,13 @@ class SessionNoteService:
 
     @staticmethod
     def _ensure_author_in_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         author_id: int,
-    ):
+    ) -> None:
+        """
+        Notu yazan kullanıcının (author), belirtilen tenant'a ait olup olmadığını doğrular.
+        """
         user = (
             db.query(models.User)
             .filter(
@@ -53,11 +64,14 @@ class SessionNoteService:
 
     @staticmethod
     def _get_note_with_tenant_check(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         note_id: int,
-    ):
-        # session_notes'ta tenant yok → sessions'a join ile kontrol
+    ) -> models.SessionNoteModel:
+        """
+        ID'ye göre notu getirir. Not tablosunda tenant_id olmadığı için
+        ilişkili Session üzerinden tenant kontrolü yapar.
+        """
         note = (
             db.query(models.SessionNoteModel)
             .join(
@@ -77,27 +91,26 @@ class SessionNoteService:
             )
         return note
 
-    # --- CRUD metotları + AUDIT LOG ---
-
     @staticmethod
     def create_note(
-        db: SASession,
+        db: Session,
         current_user: models.User,
         data: schemas.SessionNoteCreate,
-    ):
+    ) -> models.SessionNoteModel:
+        """
+        Yeni bir seans notu oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
-        # session mevcut mu ve tenant'a mı ait?
+        # Seans kontrolü
         SessionNoteService._ensure_session_in_tenant(
             db=db,
             tenant_id=tenant_id,
             session_id=data.session_id,
         )
 
-        # author_id gelmemişse current_user.id kullan
+        # Yazar (Author) kontrolü: Gönderilmemişse current_user atanır
         author_id = data.author_id or current_user.id
-
-        # author aynı tenant'tan mı?
         SessionNoteService._ensure_author_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -129,10 +142,14 @@ class SessionNoteService:
 
     @staticmethod
     def list_notes(
-        db: SASession,
+        db: Session,
         tenant_id: int,
-        session_id: int | None = None,
-    ):
+        session_id: Optional[int] = None,
+    ) -> List[models.SessionNoteModel]:
+        """
+        Tenant'a ait seans notlarını listeler.
+        session_id verilirse sadece o seansa ait notları döner.
+        """
         q = (
             db.query(models.SessionNoteModel)
             .join(
@@ -149,10 +166,13 @@ class SessionNoteService:
 
     @staticmethod
     def get_note(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         note_id: int,
-    ):
+    ) -> models.SessionNoteModel:
+        """
+        Tek bir notun detayını getirir.
+        """
         return SessionNoteService._get_note_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -161,22 +181,27 @@ class SessionNoteService:
 
     @staticmethod
     def update_note(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         note_id: int,
         data: schemas.SessionNoteBase,
         current_user: models.User,
-    ):
+    ) -> models.SessionNoteModel:
+        """
+        Notu günceller (Tam güncelleme - PUT).
+        Eğer seans veya yazar değiştiriliyorsa tenant kontrolü tekrarlanır.
+        """
         note = SessionNoteService._get_note_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             note_id=note_id,
         )
 
-        # session / author değişiyorsa tenant kontrollerini tekrar yap
+        # Yeni değerleri al
         new_session_id = data.session_id
         new_author_id = data.author_id or note.author_id
 
+        # Seans değişiyorsa kontrol et
         if new_session_id is not None and new_session_id != note.session_id:
             SessionNoteService._ensure_session_in_tenant(
                 db=db,
@@ -184,6 +209,7 @@ class SessionNoteService:
                 session_id=new_session_id,
             )
 
+        # Yazar değişiyorsa kontrol et
         if new_author_id != note.author_id:
             SessionNoteService._ensure_author_in_tenant(
                 db=db,
@@ -195,13 +221,13 @@ class SessionNoteService:
         update_data = data.model_dump()
 
         for field, value in update_data.items():
+            # Eğer author_id None geldiyse (model_dump kaynaklı), mevcut değeri koru veya yeni değeri ata
             if field == "author_id" and value is None:
                 value = new_author_id
             setattr(note, field, value)
 
         db.commit()
         db.refresh(note)
-
 
         AuditLogService.log(
             db=db,
@@ -219,12 +245,15 @@ class SessionNoteService:
 
     @staticmethod
     def partial_update_note(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         note_id: int,
         data: schemas.SessionNoteUpdate,
         current_user: models.User,
-    ):
+    ) -> models.SessionNoteModel:
+        """
+        Notu kısmi günceller (PATCH).
+        """
         note = SessionNoteService._get_note_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -235,7 +264,7 @@ class SessionNoteService:
         new_session_id = update_data.get("session_id", note.session_id)
         new_author_id = update_data.get("author_id", note.author_id)
 
-        # tenant kontrolleri
+        # Tenant kontrolleri
         SessionNoteService._ensure_session_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -255,7 +284,6 @@ class SessionNoteService:
         db.commit()
         db.refresh(note)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -272,11 +300,14 @@ class SessionNoteService:
 
     @staticmethod
     def delete_note(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         note_id: int,
         current_user: models.User,
-    ):
+    ) -> None:
+        """
+        Notu siler.
+        """
         note = SessionNoteService._get_note_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -287,7 +318,6 @@ class SessionNoteService:
         db.delete(note)
         db.commit()
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -296,5 +326,3 @@ class SessionNoteService:
             action="DELETE",
             changes={"before": before},
         )
-
-        return

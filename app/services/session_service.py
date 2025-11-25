@@ -1,21 +1,31 @@
 # app/services/session_service.py
 
-from sqlalchemy.orm import Session as SASession
+from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class SessionService:
+    """
+    Seans (Session) yönetim servisi.
+    Kullanıcıların (Practitioner) danışanlarla (Client) gerçekleştirdiği seansları yönetir.
+    """
 
     @staticmethod
     def _ensure_practitioner_and_client_in_tenant(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         practitioner_id: int,
         client_id: int,
     ):
+        """
+        Practitioner ve Client'ın belirtilen tenant'a ait olduğunu doğrular.
+        Aksi takdirde 400 hatası fırlatır.
+        """
         # Practitioner (users tablosunda)
         practitioner = (
             db.query(models.User)
@@ -48,10 +58,13 @@ class SessionService:
 
     @staticmethod
     def _ensure_appointment_in_tenant_if_provided(
-        db: SASession,
+        db: Session,
         tenant_id: int,
-        appointment_id: int | None,
+        appointment_id: Optional[int],
     ):
+        """
+        Eğer appointment_id verildiyse, bu randevunun tenant'a ait olduğunu doğrular.
+        """
         if appointment_id is None:
             return
 
@@ -71,10 +84,13 @@ class SessionService:
 
     @staticmethod
     def create_session(
-        db: SASession,
+        db: Session,
         current_user: models.User,
         data: schemas.SessionCreate,
-    ):
+    ) -> models.SessionModel:
+        """
+        Yeni bir seans kaydı oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
         # practitioner_id gönderilmemişse current_user.id kullan
@@ -110,7 +126,6 @@ class SessionService:
         db.commit()
         db.refresh(session)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -124,9 +139,12 @@ class SessionService:
 
     @staticmethod
     def list_sessions(
-        db: SASession,
+        db: Session,
         tenant_id: int,
-    ):
+    ) -> List[models.SessionModel]:
+        """
+        Tenant'a ait tüm seansları listeler.
+        """
         return (
             db.query(models.SessionModel)
             .filter(models.SessionModel.tenant_id == tenant_id)
@@ -136,10 +154,13 @@ class SessionService:
 
     @staticmethod
     def get_session(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         session_id: int,
-    ):
+    ) -> models.SessionModel:
+        """
+        Tek bir seans detayını getirir.
+        """
         session = (
             db.query(models.SessionModel)
             .filter(
@@ -157,15 +178,18 @@ class SessionService:
 
     @staticmethod
     def update_session(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         session_id: int,
         data: schemas.SessionBase,
         current_user: models.User,
-    ):
+    ) -> models.SessionModel:
+        """
+        Seans bilgilerini günceller (Tam güncelleme - PUT).
+        """
         session = SessionService.get_session(db, tenant_id, session_id)
 
-        # Tenant doğrulamaları (practitioner + client + appointment)
+        # İlişkili kayıtların tenant kontrolü
         SessionService._ensure_practitioner_and_client_in_tenant(
             db=db,
             tenant_id=tenant_id,
@@ -187,7 +211,6 @@ class SessionService:
         db.commit()
         db.refresh(session)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -204,12 +227,15 @@ class SessionService:
 
     @staticmethod
     def partial_update_session(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         session_id: int,
         data: schemas.SessionUpdate,
         current_user: models.User,
-    ):
+    ) -> models.SessionModel:
+        """
+        Seans bilgilerini kısmi günceller (PATCH).
+        """
         session = SessionService.get_session(db, tenant_id, session_id)
         update_data = data.model_dump(exclude_unset=True)
 
@@ -238,7 +264,6 @@ class SessionService:
         db.commit()
         db.refresh(session)
 
-
         AuditLogService.log(
             db=db,
             user=current_user,
@@ -255,17 +280,19 @@ class SessionService:
 
     @staticmethod
     def delete_session(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         session_id: int,
         current_user: models.User,
-    ):
+    ) -> None:
+        """
+        Seansı siler.
+        """
         session = SessionService.get_session(db, tenant_id, session_id)
         before = session.__dict__.copy()
 
         db.delete(session)
         db.commit()
-
 
         AuditLogService.log(
             db=db,
@@ -275,5 +302,3 @@ class SessionService:
             action="DELETE",
             changes={"before": before},
         )
-
-        return

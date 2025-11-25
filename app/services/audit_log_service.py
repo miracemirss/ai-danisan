@@ -1,20 +1,31 @@
+# app/services/audit_log_service.py
+
+from typing import List, Optional, Dict, Any
+
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+
 from app import models
 
 
 class AuditLogService:
+    """
+    Audit Log (Denetim Kaydı) servisi.
+    Sistemdeki kritik değişikliklerin (Create, Update, Delete) kaydını tutar.
+    """
 
     @staticmethod
     def log(
         db: Session,
-        user: models.User | None,
+        user: Optional[models.User],
         entity: str,
         entity_id: int,
         action: str,
-        changes: dict | None = None,
-    ):
+        changes: Optional[Dict[str, Any]] = None,
+    ) -> models.AuditLog:
         """
-        Sistem tarafından otomatik çağrılır. Kullanıcı çağırmaz.
+        Yeni bir audit log kaydı oluşturur.
+        Sistem tarafından otomatik çağrılır, API üzerinden manuel tetiklenmez.
         """
 
         log = models.AuditLog(
@@ -28,13 +39,14 @@ class AuditLogService:
 
         db.add(log)
         db.commit()
-        # refresh gerekmez — audit log sadece kayıt için
+        # Log kaydı sadece insert edildiği için refresh genellikle gerekmez, 
+        # ancak ID'ye hemen ihtiyaç varsa eklenebilir.
         return log
 
     @staticmethod
-    def list_logs(db: Session, tenant_id: int):
+    def list_logs(db: Session, tenant_id: int) -> List[models.AuditLog]:
         """
-        Sadece okuma yetkilidir.
+        Bir tenant'a ait tüm audit loglarını, yeniden eskiye doğru listeler.
         """
         return (
             db.query(models.AuditLog)
@@ -44,7 +56,10 @@ class AuditLogService:
         )
 
     @staticmethod
-    def get_log(db: Session, tenant_id: int, log_id: int):
+    def get_log(db: Session, tenant_id: int, log_id: int) -> models.AuditLog:
+        """
+        Tek bir audit log kaydını getirir.
+        """
         log = (
             db.query(models.AuditLog)
             .filter(
@@ -54,7 +69,6 @@ class AuditLogService:
             .first()
         )
         if not log:
-            from fastapi import HTTPException, status
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Audit log not found.",

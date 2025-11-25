@@ -1,19 +1,14 @@
 # app/routers/auth.py
 
 from datetime import timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from jose import JWTError
 
-from app.database import get_db
-from app.core.security import (
-    create_access_token,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    decode_access_token,
-)
 from app import schemas, models
+from app.core.config import settings
+from app.core.security import create_access_token
+from app.database import get_db
 from app.services import auth_service
 
 router = APIRouter(
@@ -21,20 +16,17 @@ router = APIRouter(
     tags=["auth"],
 )
 
-# Bearer token yapısını kuruyoruz
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
-
-@router.post("/register", response_model=schemas.UserRead, status_code=201)
+@router.post("/register", response_model=schemas.UserRead, status_code=status.HTTP_201_CREATED)
 def register(
-    user_in: schemas.UserCreate,
-    db: Session = Depends(get_db),
+        user_in: schemas.UserCreate,
+        db: Session = Depends(get_db),
 ):
     """
-    İlk kullanıcı aynı zamanda tenant (işletme/klinik) sahibini oluşturur.
+    Sisteme yeni bir tenant (işletme) ve yönetici (owner) kaydeder.
     """
-    existing = auth_service.get_user_by_email(db, user_in.email)
-    if existing:
+    existing_user = auth_service.get_user_by_email(db, user_in.email)
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
@@ -46,21 +38,24 @@ def register(
 
 @router.post("/login", response_model=schemas.Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: Session = Depends(get_db),
 ):
     """
-    Kullanıcı girişi.
-    OAuth2PasswordRequestForm → username + password (username = email)
+    Kullanıcı girişi yapar ve JWT Access Token döner.
     """
     user = auth_service.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Token süresini ayarlardan al
+    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    # Token oluştur (Payload içine gerekli bilgileri ekle)
     access_token = create_access_token(
         data={
             "sub": str(user.id),
@@ -73,35 +68,11 @@ def login(
     return schemas.Token(access_token=access_token, token_type="bearer")
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> models.User:
-    """
-    Header'daki Bearer token'dan kullanıcıyı çözer.
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-    )
-
-    try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-
-    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
-    if user is None:
-        raise credentials_exception
-    return user
-
-
 @router.get("/me", response_model=schemas.UserRead)
-def read_me(current_user: models.User = Depends(get_current_user)):
+def read_users_me(
+        current_user: models.User = Depends(auth_service.get_current_user)
+):
     """
-    Mevcut oturum açmış kullanıcı bilgilerini döner.
+    Giriş yapmış olan kullanıcının kendi bilgilerini döner.
     """
     return current_user

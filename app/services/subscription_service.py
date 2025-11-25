@@ -1,16 +1,25 @@
-from sqlalchemy.orm import Session as SASession
+# app/services/subscription_service.py
+
+from typing import List
+
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.services.audit_log_service import AuditLogService
 
 
 class SubscriptionService:
-
-    # --- iç yardımcılar ---
+    """
+    Abonelik (Subscription) işlemlerini yöneten servis sınıfı.
+    """
 
     @staticmethod
-    def _ensure_plan_exists(db: SASession, plan_id: int):
+    def _ensure_plan_exists(db: Session, plan_id: int) -> None:
+        """
+        Belirtilen abonelik planının var olup olmadığını kontrol eder.
+        Yoksa 400 hatası fırlatır.
+        """
         plan = (
             db.query(models.SubscriptionPlan)
             .filter(models.SubscriptionPlan.id == plan_id)
@@ -24,10 +33,13 @@ class SubscriptionService:
 
     @staticmethod
     def _get_subscription_with_tenant_check(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         subscription_id: int,
-    ):
+    ) -> models.Subscription:
+        """
+        ID'ye göre aboneliği getirir ve tenant kontrolü yapar.
+        """
         sub = (
             db.query(models.Subscription)
             .filter(
@@ -43,21 +55,21 @@ class SubscriptionService:
             )
         return sub
 
-    # --- CRUD metotları ---
-
     @staticmethod
     def create_subscription(
-        db: SASession,
+        db: Session,
         current_user: models.User,
         data: schemas.SubscriptionCreate,
-    ):
+    ) -> models.Subscription:
+        """
+        Yeni bir abonelik oluşturur.
+        """
         tenant_id = current_user.tenant_id
 
-        # plan var mı?
+        # Plan kontrolü
         SubscriptionService._ensure_plan_exists(db=db, plan_id=data.plan_id)
 
-        # İstersen: aynı tenant için birden fazla ACTIVE/TRIALING subscription engelle
-        # ...
+        # İstenirse burada "Zaten aktif aboneliği var mı?" kontrolü eklenebilir.
 
         sub = models.Subscription(
             tenant_id=tenant_id,
@@ -73,13 +85,12 @@ class SubscriptionService:
         db.commit()
         db.refresh(sub)
 
-        # 🔥 AUDIT LOG – CREATE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription",
             entity_id=sub.id,
-            action="create",
+            action="CREATE",
             changes=data.model_dump(),
         )
 
@@ -87,9 +98,12 @@ class SubscriptionService:
 
     @staticmethod
     def list_subscriptions(
-        db: SASession,
+        db: Session,
         tenant_id: int,
-    ):
+    ) -> List[models.Subscription]:
+        """
+        Tenant'a ait tüm abonelik geçmişini listeler.
+        """
         return (
             db.query(models.Subscription)
             .filter(models.Subscription.tenant_id == tenant_id)
@@ -99,10 +113,13 @@ class SubscriptionService:
 
     @staticmethod
     def get_subscription(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         subscription_id: int,
-    ):
+    ) -> models.Subscription:
+        """
+        Tek bir abonelik detayını getirir.
+        """
         return SubscriptionService._get_subscription_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -111,37 +128,41 @@ class SubscriptionService:
 
     @staticmethod
     def update_subscription(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         subscription_id: int,
         data: schemas.SubscriptionBase,
         current_user: models.User,
-    ):
+    ) -> models.Subscription:
+        """
+        Abonelik bilgilerini günceller (Tam güncelleme).
+        Plan ID değişiyorsa, yeni planın varlığı kontrol edilir.
+        """
         sub = SubscriptionService._get_subscription_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
             subscription_id=subscription_id,
         )
 
-        # plan değişiyorsa kontrol et
-        SubscriptionService._ensure_plan_exists(db=db, plan_id=data.plan_id)
+        # Plan değişiyorsa kontrol et
+        if data.plan_id != sub.plan_id:
+            SubscriptionService._ensure_plan_exists(db=db, plan_id=data.plan_id)
 
         before = sub.__dict__.copy()
-
         update_data = data.model_dump()
+
         for field, value in update_data.items():
             setattr(sub, field, value)
 
         db.commit()
         db.refresh(sub)
 
-        # 🔥 AUDIT LOG – UPDATE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription",
             entity_id=sub.id,
-            action="update",
+            action="UPDATE",
             changes={
                 "before": before,
                 "after": update_data,
@@ -152,12 +173,15 @@ class SubscriptionService:
 
     @staticmethod
     def partial_update_subscription(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         subscription_id: int,
         data: schemas.SubscriptionUpdate,
         current_user: models.User,
-    ):
+    ) -> models.Subscription:
+        """
+        Abonelik bilgilerini kısmi günceller.
+        """
         sub = SubscriptionService._get_subscription_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -178,13 +202,12 @@ class SubscriptionService:
         db.commit()
         db.refresh(sub)
 
-        # 🔥 AUDIT LOG – PATCH
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription",
             entity_id=sub.id,
-            action="patch",
+            action="PATCH",
             changes={
                 "before": before,
                 "after": update_data,
@@ -195,11 +218,14 @@ class SubscriptionService:
 
     @staticmethod
     def delete_subscription(
-        db: SASession,
+        db: Session,
         tenant_id: int,
         subscription_id: int,
         current_user: models.User,
-    ):
+    ) -> None:
+        """
+        Aboneliği siler.
+        """
         sub = SubscriptionService._get_subscription_with_tenant_check(
             db=db,
             tenant_id=tenant_id,
@@ -210,14 +236,11 @@ class SubscriptionService:
         db.delete(sub)
         db.commit()
 
-        # 🔥 AUDIT LOG – DELETE
         AuditLogService.log(
             db=db,
             user=current_user,
             entity="subscription",
             entity_id=subscription_id,
-            action="delete",
+            action="DELETE",
             changes={"before": before},
         )
-
-        return
